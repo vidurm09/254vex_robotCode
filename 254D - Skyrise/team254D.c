@@ -37,11 +37,11 @@
 
 //														Variables
 
-struct pidValues // workaround for arrays
+struct pidValues // an "array" for changing PID values, explained in calcPID()
 {
-	float target;
-	float integralSum;
-	float currentDistance;
+	float target; 
+	float integralSum; 
+	float currentDistance; 
 	float lastDistance;
 	float derivative;
 }
@@ -68,9 +68,9 @@ float batteryLevel = (float)nImmediateBatteryLevel / 1000; // in volts
 float expanderLevel = (float)SensorValue[expanderPower] / 280;
 
 // PID and Autonomous Variables
-struct pidValues lDrivePID; // PID variable 'arrays'
+struct pidValues lDrivePID; // PID variable 'arrays', one for each encoder during driver control
 struct pidValues rDrivePID;
-struct pidValues autoPID;
+struct pidValues autoPID; // variable array for autonomous, calculating for specified directional movement
 float proportionalMod = 5; // modifiers of each section of PID
 float integralMod = 0;
 float derivativeMod = 0;
@@ -97,7 +97,7 @@ void clearPID(struct pidValues* values) // clear a PID's values
 	values->derivative = 0;
 }
 
-float calcDriveEncoder(int direction) // calculates encoder value into inches or degrees of *overall movment* according to direction
+float calcDriveEncoder(int direction) // converts the two encoder values into inches or degrees of *overall movement* according to direction specified
 {
 	if (direction == 1) // if strafing left
 		return (-SensorValue[driveEncoderL] + SensorValue[driveEncoderR]) / 2 * driveMod;
@@ -117,16 +117,17 @@ float calcDriveEncoder(int direction) // calculates encoder value into inches or
 
 float calcPID(float encoder, struct pidValues* values) // calculates PID and updates values
 {
-	values->integralSum += encoder;
+	values->integralSum += encoder; // adds encoder value to the integral every calculation
 
-	float output = (values->target-encoder)*proportionalMod +
-		(values->integralSum)*integralMod + (encoder-values->lastDistance)/sampleTime*derivativeMod;
+	float output = (values->target-encoder)*proportionalMod + // "P" of PID, target subtracted from current distance
+		(values->integralSum)*integralMod + // "I" of PID, calculated above
+		(encoder-values->lastDistance)/sampleTime*derivativeMod; // "D" of PID, current distance minus last distance over time between last calculation (effectively average speed)
 
-	values->lastDistance = values->currentDistance;
+	values->lastDistance = values->currentDistance; 
 	values->currentDistance = encoder;
 	values->derivative = (encoder-values->lastDistance)/sampleTime;
 
-	if (output > 127)
+	if (output > 127) // clamping PID output to -127 or 127, maximum motor values
 		output = 127;
 	else if (output < -127)
 		output = -127;
@@ -137,7 +138,7 @@ float calcPID(float encoder, struct pidValues* values) // calculates PID and upd
 //Reverse lfDrive and rfDrive
 void drive(float forback, float turnlr, float strafelr) // drive function with deadzone, driver default: Ch3,Ch1,Ch4
 {
-	if (abs(turnlr) < deadzone)
+	if (abs(turnlr) < deadzone) // drive function will ignore sufficiently low values
 		turnlr = 0;
 	if (abs(forback) < deadzone)
 		forback = 0;
@@ -152,7 +153,7 @@ void drive(float forback, float turnlr, float strafelr) // drive function with d
 
 }
 
-void autoDrive(float speed, int direction, int time) // drive for set time, inherently inaccurate
+void autoDrive(float speed, int direction, int time) // drive in a specified direction for a set time
 {
 	if (direction == 1) // if strafing left
 	   drive(0,0,-speed);
@@ -185,7 +186,7 @@ void lift(bool up, bool down, int speed) // lift function, driver default: 6U,6D
 
 void clawDeploy(bool button) // deploys claw, driver default: 5D
 {
-	if (time1[T1] > clawDelay)
+	if (time1[T1] > clawDelay) // keeps button press from activating function multiple times
 	{
 		if(button && !clawOpen){
 			SensorValue[clawSolenoid] = 1;
@@ -218,7 +219,7 @@ void plungerDeploy(bool button) // deploys plunger, driver default: 5U
 	}
 }
 
-void driveTo(float distance, int direction, int time) // drive to an arbitary distance, with PID and a time limit
+void driveTo(float distance, int direction, int time) // drive to an set distance, with PID and a time limit
 {
 	clearTimer(T4);
 	clearPID(autoPID);
@@ -235,7 +236,7 @@ void driveTo(float distance, int direction, int time) // drive to an arbitary di
 	}
 }
 
-void liftTo(float height, int speed, int time) // lift to an arbitrary height, with a limiting time
+void liftTo(float height, int speed, int time) // lift to an set height, with a limiting time
 {
 	clearTimer(T3);
 	if (liftHeightInches < height)
@@ -272,7 +273,7 @@ void liftTo(float height, int speed, int time) // lift to an arbitrary height, w
 void liftToSkyrise(bool button) // shortcut button for liftTo skyrise, driver default:
 {
 	if (button)
-		liftTo(skyriseHeightInches, 127, 10000);
+		liftTo(skyriseHeightInches, 127, 8000);
 }
 
 //																		Tasks
@@ -296,7 +297,7 @@ task robotStatus() // prints robot info, including battery voltage and lift heig
 	}
 }
 
-task drivePIDLoop() // enables straight driving
+task drivePIDLoop() // enables straight driving *currently not working*
 {
 	if (time1[T2] > sampleTime)
 	{
