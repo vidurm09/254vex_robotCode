@@ -8,10 +8,8 @@
 #pragma config(Sensor, dgtl2,  clawSolenoid,   sensorDigitalOut)
 #pragma config(Sensor, dgtl3,  liftEncoderL,   sensorQuadEncoder)
 #pragma config(Sensor, dgtl5,  liftEncoderR,   sensorQuadEncoder)
-#pragma config(Sensor, dgtl7,  driveEncoderL,  sensorNone)
-#pragma config(Sensor, dgtl8,  driveEncoderL2, sensorNone)
-#pragma config(Sensor, dgtl9,  driveEncoderR,  sensorNone)
-#pragma config(Sensor, dgtl10, driveEncoderR2, sensorNone)
+#pragma config(Sensor, dgtl7,  driveEncoderL,  sensorQuadEncoder)
+#pragma config(Sensor, dgtl9,  driveEncoderR,  sensorQuadEncoder)
 #pragma config(Sensor, dgtl11, expanderBattery, sensorDigitalIn)
 #pragma config(Motor,  port1,           rbDrive,       tmotorVex393_HBridge, openLoop)
 #pragma config(Motor,  port2,           ltArm,         tmotorVex393_MC29, openLoop)
@@ -37,11 +35,11 @@
 
 //														Variables
 
-struct pidValues // an "array" for changing PID values, explained in calcPID()
+struct pidValues // an "array" for storing changing PID values
 {
-	float target; 
-	float integralSum; 
-	float currentDistance; 
+	float target;
+	float integralSum;
+	float currentDistance;
 	float lastDistance;
 	float derivative;
 }
@@ -52,9 +50,9 @@ const float liftMod = 0.013157;
 const float turnMod = 0.1181; // conversion to degrees
 const float skyriseHeightInches = 10; // used in liftToSkyrise()
 const float minLiftHeight = -1; // lift caps in inches
-const float maxLiftHeight = 70;
+const float maxLiftHeight = 40;
 const int deadzone = 10;
-const int debugRefreshDelay = 200; // delay for robotStatus()
+const int debugRefreshDelay = 50; // delay for robotStatus()
 
 // Pneumatics and Timing Variables
 bool clawOpen = false; // at start of match, claw is closed
@@ -68,13 +66,14 @@ float batteryLevel = (float)nImmediateBatteryLevel / 1000; // in volts
 float expanderLevel = (float)SensorValue[expanderPower] / 280;
 
 // PID and Autonomous Variables
-struct pidValues lDrivePID; // PID variable 'arrays', one for each encoder during driver control
+struct pidValues lDrivePID; // PID variable 'arrays'
 struct pidValues rDrivePID;
-struct pidValues autoPID; // variable array for autonomous, calculating for specified directional movement
-float proportionalMod = 5; // modifiers of each section of PID
-float integralMod = 0;
-float derivativeMod = 0;
+struct pidValues autoPID;
+float proportionalMod = 18; // modifiers of each section of PID
+float integralMod = 0.003;
+float derivativeMod = 1;
 int sampleTime = 30; // in milliseconds, amount of delay between PID calculations
+int lcdSection = 4;
 bool inAuton;
 float outputPID;
 
@@ -97,42 +96,42 @@ void clearPID(struct pidValues* values) // clear a PID's values
 	values->derivative = 0;
 }
 
-float calcDriveEncoder(int direction) // converts the two encoder values into inches or degrees of *overall movement* according to direction specified
+float calcDriveEncoder(int direction) // calculates encoder value into inches or degrees of *overall movement* according to direction specified
 {
 	if (direction == 1) // if strafing left
-		return (-SensorValue[driveEncoderL] + SensorValue[driveEncoderR]) / 2 * driveMod;
-	else if (direction == 2) // if driving forward
-		return (SensorValue[driveEncoderL] + SensorValue[driveEncoderR]) / 2 * driveMod;
-	else if (direction == 3) // if strafing right
 		return (SensorValue[driveEncoderL] + -SensorValue[driveEncoderR]) / 2 * driveMod;
-	else if (direction == 4) // if driving backward
+	else if (direction == 2) // if driving forward
 		return (-SensorValue[driveEncoderL] + -SensorValue[driveEncoderR]) / 2 * driveMod;
+	else if (direction == 3) // if strafing right
+		return (-SensorValue[driveEncoderL] + SensorValue[driveEncoderR]) / 2 * driveMod;
+	else if (direction == 4) // if driving backward
+		return (SensorValue[driveEncoderL] + SensorValue[driveEncoderR]) / 2 * driveMod;
 	else if (direction == 5) // if turning left
-		return (SensorValue[driveEncoderL] + SensorValue[driveEncoderR]) / 2 * turnMod;
-	else if (direction == 6) // if turning right
 		return (SensorValue[driveEncoderL] + -SensorValue[driveEncoderR]) / 2 * turnMod;
+	else if (direction == 6) // if turning right
+		return (-SensorValue[driveEncoderL] + SensorValue[driveEncoderR]) / 2 * turnMod;
 	else
 		return 0;
 }
 
 float calcPID(float encoder, struct pidValues* values) // calculates PID and updates values
 {
-	values->integralSum += encoder; // adds encoder value to the integral every calculation
+	values->integralSum += encoder; // adds encoder value to the integral sum every calculation
 
 	float output = (values->target-encoder)*proportionalMod + // "P" of PID, target subtracted from current distance
 		(values->integralSum)*integralMod + // "I" of PID, calculated above
-		(encoder-values->lastDistance)/sampleTime*derivativeMod; // "D" of PID, current distance minus last distance over time between last calculation (effectively average speed)
+		(encoder-values->lastDistance)/sampleTime*derivativeMod; // "D" of PID, current distance minus last distance over time between last calculation
 
-	values->lastDistance = values->currentDistance; 
+	values->lastDistance = values->currentDistance; // setting changing values in the "array"
 	values->currentDistance = encoder;
 	values->derivative = (encoder-values->lastDistance)/sampleTime;
 
 	if (output > 127) // clamping PID output to -127 or 127, maximum motor values
-		output = 127;
+		return 127;
 	else if (output < -127)
-		output = -127;
-
-	return output;
+		return -127;
+	else
+		return output;
 }
 
 //Reverse lfDrive and rfDrive
@@ -149,11 +148,9 @@ void drive(float forback, float turnlr, float strafelr) // drive function with d
 	motor[lfDrive] = forback+turnlr+strafelr;
 	motor[rbDrive] = forback-turnlr+strafelr;
 	motor[rfDrive] = forback-turnlr-strafelr;
-
-
 }
 
-void autoDrive(float speed, int direction, int time) // drive in a specified direction for a set time
+void autoDrive(float speed, int direction, int time) // drive for set time, inherently inaccurate
 {
 	if (direction == 1) // if strafing left
 	   drive(0,0,-speed);
@@ -221,11 +218,13 @@ void plungerDeploy(bool button) // deploys plunger, driver default: 5U
 
 void driveTo(float distance, int direction, int time) // drive to an set distance, with PID and a time limit
 {
-	clearTimer(T4);
+	clearTimer(T2);
+	clearTimer(T3);
+	SensorValue[driveEncoderL] = SensorValue[driveEncoderR] = 0;
 	clearPID(autoPID);
 	autoPID.target = distance;
 
-	while (time1[T4] < time) // stops if there is little movement or time limit is reached
+	while (time1[T2] < time) // stops if there is little movement or time limit is reached
 	{
 		if (time1[T3] > sampleTime)
 		{
@@ -233,7 +232,13 @@ void driveTo(float distance, int direction, int time) // drive to an set distanc
 			autoDrive(outputPID,direction,0);
 			clearTimer(T3);
 		}
+		//if (autoPID.currentDistance > distance)
+		//{
+		//	writeDebugStreamLine("distance break");
+		//	break;
+		//}
 	}
+	drive(0,0,0);
 }
 
 void liftTo(float height, int speed, int time) // lift to an set height, with a limiting time
@@ -273,31 +278,72 @@ void liftTo(float height, int speed, int time) // lift to an set height, with a 
 void liftToSkyrise(bool button) // shortcut button for liftTo skyrise, driver default:
 {
 	if (button)
-		liftTo(skyriseHeightInches, 127, 8000);
+		liftTo(skyriseHeightInches, 127, 10000);
 }
 
 //																		Tasks
 
 task liftMonitor() // refreshes lift height and prevents lift from going over/under bounds
 {
-	liftHeightInches = (SensorValue[liftEncoderL] + SensorValue[liftEncoderR]) * liftMod / 2;
-	if (liftHeightInches > maxLiftHeight)
-		liftTo(maxLiftHeight,127,100);
-	else if (liftHeightInches < minLiftHeight)
-		liftTo(minLiftHeight,127,100);
-}
-
-task robotStatus() // prints robot info, including battery voltage and lift height
-{
-	if (time1[T4] > debugRefreshDelay)
+	while (true)
 	{
-		writeDebugStreamLine("Battery voltage: %f", batteryLevel);
-		writeDebugStreamLine("Expander voltage: %f", expanderLevel);
-		writeDebugStreamLine("Lift Height: %f", liftHeightInches);
+		if (time1[T4] > debugRefreshDelay)
+		{
+			liftHeightInches = (SensorValue[liftEncoderR]) * liftMod;
+			if (liftHeightInches > maxLiftHeight)
+				liftTo(maxLiftHeight,127,100);
+			else if (liftHeightInches < minLiftHeight)
+				liftTo(minLiftHeight,127,100);
+			clearTimer(T4);
+		}
 	}
 }
 
-task drivePIDLoop() // enables straight driving *currently not working*
+task lcd() // switch between skyrise, cube, and robot info with LCD
+{
+	while (true)
+	{
+		clearLCDLine(0);
+		clearLCDLine(1);
+		if (nLCDButtons != 0)
+			lcdSection = nLCDButtons;
+		if (lcdSection == 1) // left button - skyrise
+		{
+			if (SensorValue[potentiometer] <= 1000) // potentiometer pointed downwards
+				displayLCDCenteredString(0,"Blue Skyrise");
+			else if (SensorValue[potentiometer] > 1000 && SensorValue[potentiometer] <= 3000)// potentiometer in the middle
+				displayLCDCenteredString(0,"Drive Forward");
+			else if (SensorValue[potentiometer] >= 3000) // potentiometer pointed upwards
+				displayLCDCenteredString(0,"Red Skyrise");
+			displayLCDCenteredString(1,"(Sky) Cube  Stat ");
+		}
+		else if (lcdSection == 2) // middle button - cube
+		{
+			if (SensorValue[potentiometer] <= 1000) // potentiometer pointed downwards
+				displayLCDCenteredString(0,"Blue Cube");
+			else if (SensorValue[potentiometer] > 1000 && SensorValue[potentiometer] <= 3000) // potentiometer in the middle
+				displayLCDCenteredString(0,"Drive Forward");
+			else if (SensorValue[potentiometer] >= 3000) // potentiometer pointed upwards
+				displayLCDCenteredString(0,"Red Cube");
+			displayLCDCenteredString(1," Sky (Cube) Stat ");
+		}
+		else if (lcdSection == 4) // right button - status
+		{
+			if (SensorValue[potentiometer] <= 1000) // potentiometer pointed downwards
+				displayLCDCenteredString(0,"Lift:");
+			else if (SensorValue[potentiometer] > 1000 && SensorValue[potentiometer] <= 2000) // potentiometer in the middle
+				displayLCDCenteredString(0,"Battery:");
+			else if (SensorValue[potentiometer] > 2000 && SensorValue[potentiometer] <= 3000) //
+				displayLCDCenteredString(0,"Drive");
+			else if (SensorValue[potentiometer] >= 3000) // potentiometer pointed upwards
+				displayLCDCenteredString(0,"Plunger: Claw:");
+			displayLCDCenteredString(1," Sky  Cube (Stat)");
+		}
+		wait1Msec(200);
+	}
+}
+
+task drivePIDLoop() // enables straight driving
 {
 	if (time1[T2] > sampleTime)
 	{
@@ -314,12 +360,15 @@ task drivePIDLoop() // enables straight driving *currently not working*
 	}
 }
 
+
+
 //                          	Pre-Autonomous Functions
 
 void pre_auton()
 {
   bStopTasksBetweenModes = true;
   clearTimers();
+  startTask(lcd);
   SensorValue[driveEncoderL] = SensorValue[driveEncoderR] = 0;
 }
 
@@ -328,38 +377,133 @@ void pre_auton()
 void blueSkyrise()
 {
 	writeDebugStreamLine("blue skyrise");
-	liftTo(16,120,5000);
-	driveTo(9,3,500);
+	liftTo(17,120,4000);
+	driveTo(7,2,1000);
+	driveTo(9,3,1000);
+	driveTo(3.5,2,300);
 	liftTo(7.5,120,3000);
-	clawDeploy(true);
+	SensorValue[clawSolenoid] = 0;
 	liftTo(4.6,115,4000);
-	plungerDeploy(true);
+	SensorValue[plungerSolenoid] = 1;
 	wait1Msec(100);
 	liftTo(7.5,120,3000);
-	clawDeploy(true);
-	liftToSkyrise(true);
+	SensorValue[clawSolenoid] = 1;
+	liftTo(13,120,3000);
+	driveTo(10,1,1000);
+	driveTo(6,2,500);
+	driveTo(64,6,2000);
+	driveTo(9,2,1800);
+	driveTo(2.5,4,500);
+	liftTo(5,100,5000);
+	SensorValue[clawSolenoid] = 0;
+	liftTo(2,80,500);
+	SensorValue[plungerSolenoid] = 0;
+	liftTo(13,120,3000);
+	driveTo(5,4,500);
 }
 
 void redSkyrise()
 {
-		writeDebugStreamLine("red skyrise");
+	writeDebugStreamLine("red skyrise");
+	liftTo(17,120,4000);
+	driveTo(7,2,1000);
+	driveTo(9,1,1000);
+	driveTo(3.5,2,300);
+	liftTo(7.5,120,3000);
+	SensorValue[clawSolenoid] = 0;
+	liftTo(4.6,115,4000);
+	SensorValue[plungerSolenoid] = 1;
+	wait1Msec(100);
+	liftTo(7.5,120,3000);
+	SensorValue[clawSolenoid] = 1;
+	liftTo(13,120,3000);
+	driveTo(10,1,1000);
+	driveTo(6,2,500);
+	driveTo(64,5,2000);
+	driveTo(9,2,1800);
+	driveTo(2.5,4,500);
+	liftTo(5,100,5000);
+	SensorValue[clawSolenoid] = 0;
+	liftTo(2,80,500);
+	SensorValue[plungerSolenoid] = 0;
+	liftTo(13,120,3000);
+	driveTo(5,4,500);
+}
+
+void blueCube()
+{
+	writeDebugStreamLine("blue cube");
+	liftTo(10,100,1500);
+	driveTo(12,2,1200);
+	liftTo(8.2,100,300);
+	SensorValue[clawSolenoid] = 0;
+	liftTo(0.12,100,1500);
+	SensorValue[clawSolenoid] = 1;
+	liftTo(2,100,500);
+	driveTo(45,5,1800);
+	liftTo(33.8,120,8000);
+	driveTo(13,3,1200);
+	driveTo(6,2,600);
+	driveTo(2,4,400);
+	liftTo(29,120,3000);
+	SensorValue[clawSolenoid] = 0;
+	liftTo(33.8,120,2000);
+}
+
+void redCube()
+{
+	writeDebugStreamLine("red cube");
+	liftTo(10,100,1500);
+	driveTo(12,2,1200);
+	liftTo(8.2,100,300);
+	SensorValue[clawSolenoid] = 0;
+	liftTo(0.12,100,1500);
+	SensorValue[clawSolenoid] = 1;
+	liftTo(2,100,500);
+	driveTo(45,6,1800);
+	liftTo(33.8,120,8000);
+	driveTo(13,1,1200);
+	driveTo(6,2,600);
+	driveTo(2,4,400);
+	liftTo(29,120,3000);
+	SensorValue[clawSolenoid] = 0;
+	liftTo(33.8,120,2000);
 }
 
 void driveAway()
 {
 		writeDebugStreamLine("drive away");
-		liftTo(16,120,2000);
+		liftToSkyrise(true);
+		driveTo(16,2,2500);
+}
+
+void potChoose(int potValue) // determines which auto to run, based on lcd button and potentiometer
+{
+	if (lcdSection == 1)
+	{
+		if (SensorValue[potentiometer] <= 1000 && lcdSection) // potentiometer pointed downwards
+			blueSkyrise();
+		else if (SensorValue[potentiometer] > 1000 && SensorValue[potentiometer] <= 3000)// potentiometer in the middle
+			driveAway();
+		else if (SensorValue[potentiometer] >= 3000) // potentiometer pointed upwards
+			redSkyrise();
+	}
+	else if (lcdSection == 2)
+	{
+		if (SensorValue[potentiometer] <= 1000 && lcdSection) // potentiometer pointed downwards
+			blueCube();
+		else if (SensorValue[potentiometer] > 1000 && SensorValue[potentiometer] <= 3000)// potentiometer in the middle
+			driveAway();
+		else if (SensorValue[potentiometer] >= 3000) // potentiometer pointed upwards
+			redCube();
+	}
 }
 
 task autonomous()
 {
+	inAuton = true;
 	startTask(liftMonitor);
-	if (SensorValue[potentiometer] <= 1000) // potentiometer pointed downwards
-		blueSkyrise();
-	else if (SensorValue[potentiometer] > 1000 && SensorValue[potentiometer] <= 3000)// potentiometer in the middle
-		driveAway();
-	else if (SensorValue[potentiometer] >= 3000) // potentiometer pointed upwards
-		redSkyrise();
+	potChoose(SensorValue[potentiometer]);
 	writeDebugStreamLine("	auto complete");
 }
 
@@ -367,11 +511,12 @@ task autonomous()
 
 task usercontrol()
 {
+	inAuton = false;
 	writeDebugStreamLine("user");
-	//startTask(robotStatus);
+	startTask(lcd);
+	startTask(liftMonitor);
 	while (true)
 	{
-		startTask(liftMonitor);
 	  drive(vexRT[Ch3], vexRT[Ch1], vexRT[Ch4]);
 	  lift(vexRT[Btn6U], vexRT[Btn6D], 127);
 	  clawDeploy(vexRT[Btn5D]);
