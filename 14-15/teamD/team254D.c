@@ -72,6 +72,7 @@ struct pidValues autoPID;
 float proportionalMod = 18; // modifiers of each section of PID
 float integralMod = 0.003;
 float derivativeMod = 1;
+float speedLimit = 1; // derivative low limit for exiting out of driveTo()
 int sampleTime = 30; // in milliseconds, amount of delay between PID calculations
 int lcdSection = 4;
 bool inAuton;
@@ -232,11 +233,11 @@ void driveTo(float distance, int direction, int time) // drive to an set distanc
 			autoDrive(outputPID,direction,0);
 			clearTimer(T3);
 		}
-		//if (autoPID.currentDistance > distance)
-		//{
-		//	writeDebugStreamLine("distance break");
-		//	break;
-		//}
+		if (abs(autoPID.derivative) < speedLimit && time1[T2] > 50) // check for low speed after an initial time
+		{
+			writeDebugStreamLine("derivative break");
+			break;
+		}
 	}
 	drive(0,0,0);
 }
