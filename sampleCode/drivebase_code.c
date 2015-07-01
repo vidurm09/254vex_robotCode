@@ -1,8 +1,3 @@
-/*
-	TODO:
-	Add Holonomic code
-*/
-
 void tank(){
 	motor[RB] = motor[RF] = vexRT[Ch2]; //Right side of the drive
 	motor[LF] = motor[LB] = vexRT[Ch3]; //Left side of the drive
@@ -28,7 +23,7 @@ void hDrive() {
 	*/
 }
 
-void mecanum() {
+void mecanum() { // linear movement with Ch3,4 and rotation with Ch1, holonomic code is identical
 	motor[RF] = vexRT[Ch3] - vexRT[Ch1] - vexRT[Ch4];
 	motor[RB] =  vexRT[Ch3] - vexRT[Ch1] + vexRT[Ch4];
 	motor[LF] = vexRT[Ch3] + vexRT[Ch1] + vexRT[Ch4];
