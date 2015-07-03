@@ -1,6 +1,6 @@
-#pragma config(Sensor, dgtl1,  flyEncoder,     sensorQuadEncoder)
 #pragma config(Sensor, dgtl3,  led1,           sensorDigitalOut)
 #pragma config(Sensor, dgtl4,  led2,           sensorDigitalOut)
+#pragma config(Sensor, dgtl11, flyEncoder,     sensorQuadEncoder)
 #pragma config(Motor,  port2,           rightDrive,    tmotorVex393_MC29, openLoop, reversed)
 #pragma config(Motor,  port3,           leftDrive,     tmotorVex393_MC29, openLoop)
 #pragma config(Motor,  port4,           roll,          tmotorVex393_MC29, openLoop)
@@ -39,7 +39,8 @@ float proportionalMod = 18; // modifiers of each section of PID
 float integralMod = 0.003;
 float derivativeMod = 1;
 float wheelRPM;
-float lastEncoder;
+float lastEncoder = 0;
+float gearRatio = 5; // ratio of encoder gear over flywheel gear
 
 void outake(int power)
 {
@@ -293,7 +294,7 @@ task statusRPM() // updates the flywheel RPM constantly
 {
 	while(true)
 	{
-		wheelRPM = (SensorValue[flyEncoder]-lastEncoder) / sampleTime * 1000 * 60;
+		wheelRPM = (SensorValue[flyEncoder]-lastEncoder) / sampleTime / 360 * 1000 * 60 * gearRatio;
 		lastEncoder = SensorValue[flyEncoder];
 		wait1Msec(sampleTime);
 	}
@@ -310,9 +311,23 @@ task pidRPM() // started in flywheelAdjust()
 
 void flywheelAdjust(float targetRPM) // sets PID target for flywheel to reach and starts pidRPM()
 {
+	clearPID(flyPID);
 	flyPID.target = targetRPM;
 	startTask(pidRPM);
 	isRampedUp = true;
+}
+
+void rampUp( int time )
+{
+	for(int i = 0; i <= 80; i++)
+	{
+		outakeSpeed = i;
+		outake(outakeSpeed);
+		wait1Msec( time );
+
+	}
+	isRampedUp = true;
+
 }
 
 void rampDown( int time )
@@ -342,6 +357,7 @@ void pre_auton()
   // Autonomous and Tele-Op modes. You will need to manage all user created tasks if set to false.
   bStopTasksBetweenModes = true;
 	startTask(statusRPM);
+	SensorValue[flyEncoder] = 0;
 	// All activities that occur before the competition starts
 	// Example: clearing encoders, setting servo positions, ...
 }
@@ -362,6 +378,7 @@ task autonomous()
   // .....................................................................................
 
 	AutonomousCodePlaceholderForTesting();  // Remove this function call once you have "real" code.
+
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -372,19 +389,6 @@ task autonomous()
 // You must modify the code to add your own robot specific commands here.
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-
-void rampUp( int time )
-{
-	for(int i = 0; i <= 80; i++)
-	{
-		outakeSpeed = i;
-		outake(outakeSpeed);
-		wait1Msec( time );
-
-	}
-	isRampedUp = true;
-
-}
 
 void slowDown( int time )
 {
@@ -413,7 +417,7 @@ task usercontrol()
 {
 	// User control code here, inside the loop
 	// Start the flywheel control task
- 	startTask( FwControlTask );
+ 	//startTask( FwControlTask );
  	startTask(statusRPM);
 
 
@@ -449,7 +453,6 @@ task usercontrol()
 		{
 			motor[triangle] = 0;
 		}
-		/*
 		if( vexRT[Btn8D] && !isRampedUp)
 		{
 			rampUp( 10 );
@@ -479,6 +482,7 @@ task usercontrol()
 			}
 			clearTimer(T1);
 		}
+		/*
 		if( vexRT[ Btn7L ] == 1 )
     	FwVelocitySet( &flywheel, 144, 0.55 );
     if( vexRT[ Btn7U ] == 1 )
